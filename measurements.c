@@ -190,7 +190,7 @@ void create_grid (measurement *list, int nummeas, int numlocx, int numlocy, kern
 	allkers->numoverlap = (int)(lts/dxmeas) + 1;
 }
 
-int load_measurements (char *fname, measurement** list, int *nummeas, int *numlocx, int *numlocy, float **flocx, float **flocy, interp_mask **mask)
+int load_measurements (char *fname, measurement** list, int *nummeas, int *numlocx, int *numlocy, float **flocx, float **flocy, interp_mask **mask, int myid)
 {
 	FILE *fptr;
 	char instr[300];
@@ -200,125 +200,149 @@ int load_measurements (char *fname, measurement** list, int *nummeas, int *numlo
 	int iread[2];
 	// count number of measurements, also keep track of min/max locations
 	
-	fptr = fopen(fname, "r");
-	// error checking
-	if (fptr == NULL)
+	if (myid == 0)
 	{
-		printf("Error opening measurement file: %s\n", fname);
-		return -1;
-	}
-
-	// count the lines
-	counter = 0;
-	while(fgets(instr, 300, fptr) != NULL)
-		counter++;
-
-	// error checking?
-	if (counter==0)
-	{
-		printf("Error: not enough measurements in %s\n", fname);
-		return -2;
-	}
-
-	// make sure to return the number of measurements
-	*nummeas = counter;
-
-	// allocate space for them all
-	*list = (measurement*) malloc(*nummeas * sizeof(measurement));
-
-	// go back through and load them
-	rewind(fptr);
-	for (ii=0; ii<counter; ii++)
-	{
-		ret = fscanf(fptr,"%e\t%e\t%d\t%d\t%e\t%e\t%e\t%e\t\n", 
-				fread, fread+1, iread, iread+1, fread+2, fread+3, fread+4, fread+5);
+	
+		fptr = fopen(fname, "r");
 		// error checking
-		if (ret != 8)
+		if (fptr == NULL)
 		{
-			printf("Error: invalid data at line %d (%d found, 8 needed)\n", ii+1,ret);
-			return -3;
+			printf("Error opening measurement file: %s\n", fname);
+			return -1;
 		}
-		// load data into list
-		(*list)[ii].k = iread[0];
-		(*list)[ii].n = iread[1];
-		(*list)[ii].locx = -1; // not set yet
-		(*list)[ii].locy = -1;
-		(*list)[ii].vx = fread[2]; // zonal velocity
-		(*list)[ii].ex = fread[3];
-		(*list)[ii].vy = fread[4]; // meridional velocity
-		(*list)[ii].ey = fread[5]; // meridional velocity error
-		(*list)[ii].flocx = fread[0]; // longitude
-		(*list)[ii].flocy = fread[1]; // latitude
-		(*list)[ii].ker = NULL; // not set yet
-		(*list)[ii].haskernel = 0; // flag for no kernel matched yet
-		(*list)[ii].size = 16.0; // tile size in degreees, used to find neighbors
-	}
-	fclose(fptr);
-	// all measurements have been loaded into memory
-	
-	// set integer 'loc' for each measurement by sorting floc values
-	// and tagging each measurement with the sorted index
-	sortedx = (float*) malloc(counter * sizeof(float));
-	memset(sortedx, 0x00, counter*sizeof(float));
-	ins_sort(counter, list, &numuniquex, &sortedx, 0);
-	sortedy = (float*) malloc(counter * sizeof(float));
-	memset(sortedy, 0x00, counter*sizeof(float));
-	ins_sort(counter, list, &numuniquey, &sortedy, 1);
 
-	printf("Found %d unique positions in x, %d in y\n", numuniquex, numuniquey);
-//	for (ii=0; ii<numuniquey; ii++)
-//		printf("%e\n", sortedy[ii]);
-	*numlocx = numuniquex;
-	*numlocy = numuniquey;
+		// count the lines
+		counter = 0;
+		while(fgets(instr, 300, fptr) != NULL)
+			counter++;
 
-	// make space for interpolation masks
-	(*mask) = (interp_mask*) malloc(numuniquex*numuniquey * sizeof(interp_mask));
-	// assign identifiers
-	for (ii=0; ii<numuniquex; ii++)
-	{
-		for (ij=0; ij<numuniquey; ij++)
+		// error checking?
+		if (counter==0)
 		{
-			(*mask)[ii*numuniquey+ij].locx = ii;
-			(*mask)[ii*numuniquey+ij].locy = ij;
-			(*mask)[ii*numuniquey+ij].size = 16.0;
-
+			printf("Error: not enough measurements in %s\n", fname);
+			return -2;
 		}
-	}
 
-	// there are now two dimensions to consider
-	// we want a separate sorted list in each direction 
-	// for keeping track of position
+		// make sure to return the number of measurements
+		*nummeas = counter;
+		MPI_Bcast(&counter, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-	// go through each measurement and match the floc to the sorted loc
-	// assign loc to the index
-	for (ii=0; ii<counter; ii++)
-	{
-		// search for appropriate x value
-		ij = 0;
-		while ((*list)[ii].flocx != sortedx[ij])
-			ij++;
-		(*list)[ii].locx = ij;
-		// search for appropriate y value
-		ij = 0;
-		while ((*list)[ii].flocy != sortedy[ij])
-			ij++;
-		(*list)[ii].locy = ij;
+		// allocate space for them all
+		*list = (measurement*) malloc(*nummeas * sizeof(measurement));
 
-		// link to an interp_mask
-		ij = (*list)[ii].locx * numuniquey + (*list)[ii].locy;
-		(*list)[ii].mask = &((*mask)[ij]);
-	}
-
-	// finally, every measurement has been loaded, and the 'loc' tags have been set
+		// go back through and load them
+		rewind(fptr);
+		for (ii=0; ii<counter; ii++)
+		{
+			ret = fscanf(fptr,"%e\t%e\t%d\t%d\t%e\t%e\t%e\t%e\t\n", 
+					fread, fread+1, iread, iread+1, fread+2, fread+3, fread+4, fread+5);
+			// error checking
+			if (ret != 8)
+			{
+				printf("Error: invalid data at line %d (%d found, 8 needed)\n", ii+1,ret);
+				return -3;
+			}
+			// load data into list
+			(*list)[ii].k = iread[0];
+			(*list)[ii].n = iread[1];
+			(*list)[ii].locx = -1; // not set yet
+			(*list)[ii].locy = -1;
+			(*list)[ii].vx = fread[2]; // zonal velocity
+			(*list)[ii].ex = fread[3];
+			(*list)[ii].vy = fread[4]; // meridional velocity
+			(*list)[ii].ey = fread[5]; // meridional velocity error
+			(*list)[ii].flocx = fread[0]; // longitude
+			(*list)[ii].flocy = fread[1]; // latitude
+			(*list)[ii].ker = NULL; // not set yet
+			(*list)[ii].haskernel = 0; // flag for no kernel matched yet
+			(*list)[ii].size = 16.0; // tile size in degreees, used to find neighbors
+		}
+		fclose(fptr);
+		// all measurements have been loaded into memory
 	
-	// copy unique locations into flocx, flocy
-	(*flocx) = (float*) malloc(numuniquex * sizeof(float));
-	(*flocy) = (float*) malloc(numuniquey * sizeof(float));
-	memcpy((*flocx), sortedx, numuniquex * sizeof(float));
-	memcpy((*flocy), sortedy, numuniquey * sizeof(float));
+		// set integer 'loc' for each measurement by sorting floc values
+		// and tagging each measurement with the sorted index
+		sortedx = (float*) malloc(counter * sizeof(float));
+		memset(sortedx, 0x00, counter*sizeof(float));
+		ins_sort(counter, list, &numuniquex, &sortedx, 0);
+		sortedy = (float*) malloc(counter * sizeof(float));
+		memset(sortedy, 0x00, counter*sizeof(float));
+		ins_sort(counter, list, &numuniquey, &sortedy, 1);
 
-	free(sortedx);
-	free(sortedy);
+		printf("Found %d unique positions in x, %d in y\n", numuniquex, numuniquey);
+		MPI_Bcast(&numuniquex, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(&numuniquey, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		*numlocx = numuniquex;
+		*numlocy = numuniquey;
+
+		// make space for interpolation masks
+		(*mask) = (interp_mask*) malloc(numuniquex*numuniquey * sizeof(interp_mask));
+		// assign identifiers
+		for (ii=0; ii<numuniquex; ii++)
+		{
+			for (ij=0; ij<numuniquey; ij++)
+			{
+				(*mask)[ii*numuniquey+ij].locx = ii;
+				(*mask)[ii*numuniquey+ij].locy = ij;
+				(*mask)[ii*numuniquey+ij].size = 16.0;
+	
+			}
+		}
+
+		// there are now two dimensions to consider
+		// we want a separate sorted list in each direction 
+		// for keeping track of position
+
+		// go through each measurement and match the floc to the sorted loc
+		// assign loc to the index
+		for (ii=0; ii<counter; ii++)
+		{
+			// search for appropriate x value
+			ij = 0;
+			while ((*list)[ii].flocx != sortedx[ij])
+				ij++;
+			(*list)[ii].locx = ij;
+			// search for appropriate y value
+			ij = 0;
+			while ((*list)[ii].flocy != sortedy[ij])
+				ij++;
+			(*list)[ii].locy = ij;
+	
+			// link to an interp_mask
+			ij = (*list)[ii].locx * numuniquey + (*list)[ii].locy;
+			(*list)[ii].mask = &((*mask)[ij]);
+		}
+
+		// finally, every measurement has been loaded, and the 'loc' tags have been set
+	
+		// copy unique locations into flocx, flocy
+		(*flocx) = (float*) malloc(numuniquex * sizeof(float));
+		(*flocy) = (float*) malloc(numuniquey * sizeof(float));
+		memcpy((*flocx), sortedx, numuniquex * sizeof(float));
+		memcpy((*flocy), sortedy, numuniquey * sizeof(float));
+		
+		MPI_Bcast(flocx, *numlocx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(flocy, *numlocy, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(*list, *nummeas * sizeof(measurement), MPI_BYTE, 0, MPI_COMM_WORLD);
+
+		free(sortedx);
+		free(sortedy);
+
+		printf("Number of measurements: %d\n", *nummeas);
+	} else {
+		MPI_Bcast(&counter, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		*nummeas = counter;
+		*list = (measurement*) malloc(*nummeas * sizeof(measurement));
+		MPI_Bcast(&numuniquex, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(&numuniquey, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		*numlocx = numuniquex;
+		*numlocy = numuniquey;
+		(*flocx) = (float*) malloc(numuniquex * sizeof(float));
+		(*flocy) = (float*) malloc(numuniquey * sizeof(float));
+		MPI_Bcast(flocx, *numlocx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(flocy, *numlocy, MPI_FLOAT, 0, MPI_COMM_WORLD);
+		MPI_Bcast(*list, *nummeas * sizeof(measurement), MPI_BYTE, 0, MPI_COMM_WORLD);
+	}
 	return 0;
 }
 

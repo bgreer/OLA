@@ -127,7 +127,7 @@ void free_grid (grid *g);
 double covar (measurement *m1, measurement *m2, int group1, int group2);
 void compute_answer (int numparams, float *params, measurement *mlist, measurement *****mgrid, float *vx, float *evx, float *vy, float *evy, float *norm, kernel_desc *allkers);
 int link_kernels(int nummeas, int numkers, measurement *meas, kernel **kers);
-int load_measurements(char *fname, measurement** list, int *nummeas, int *numlocx, int *numlocy, float **flocx, float **flocy, interp_mask **mask);
+int load_measurements(char *fname, measurement** list, int *nummeas, int *numlocx, int *numlocy, float **flocx, float **flocy, interp_mask **mask, int myid);
 void ins_sort(int num, measurement **list, int *numunique, float **sorted, uint8_t flag);
 
 // function.c
@@ -145,3 +145,6 @@ float interp_kernel (float x0);
 void interp (float x, float y, float ***data, int dim, int nz, float *res);
 int imin (int a, int b);
 int imax (int a, int b);
+
+// manager.c
+void manager (int nproc, int numlocx, int numlocy, char *outfname, float lambda, float *flocx, float *flocy);

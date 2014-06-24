@@ -5,8 +5,8 @@ CC=mpicc -ip -ipo -O3
 MKL = -L/central/intel/mkl/lib/em64t -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread
 FITS=-L/shared/cfitsio-3.24/lib -lcfitsio
 
-ola : main.o kernels.o measurements.o function.o optimization.o interp.o parse_input.o
-	$(CC) main.o kernels.o measurements.o function.o optimization.o interp.o parse_input.o -o ola $(FITS) -lm $(MKL) -lrt
+ola : main.o kernels.o measurements.o function.o optimization.o interp.o parse_input.o manager.o
+	$(CC) main.o kernels.o measurements.o function.o optimization.o interp.o parse_input.o manager.o -o ola $(FITS) -lm $(MKL) -lrt
 
 main.o : main.c header.h
 	$(CC) -c main.c
@@ -28,6 +28,9 @@ interp.o : interp.c header.h
 
 parse_input.o : parse_input.c header.h
 	$(CC) -c parse_input.c
+
+manager.o : manager.c header.h
+	$(CC) -c manager.c
 
 clean : 
 	rm *.o ola
